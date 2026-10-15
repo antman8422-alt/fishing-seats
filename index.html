@@ -168,12 +168,23 @@ document.addEventListener("click",e=>{
 });
 $("#fPort").addEventListener("change",e=>{state.port=e.target.value; save(); render();});
 
-fetch("data/seats.json?t="+Date.now()).then(r=>{if(!r.ok) throw new Error(r.status); return r.json();}).then(j=>{
-  data=j;
-  $("#upd").innerHTML=`갱신 <b>${j.updated.replace(/^\d{4}-/,"").replace(" KST","")}</b>`;
-  const tf=j.boats?j.boats.length:0;
-  $("#foot").innerHTML=`선상24 공개 API + 더피싱(thefishing.kr) 경기도 권역 ${tf}척. 2시간마다 자동 갱신되며, 숫자는 갱신 시각 기준이라 예약 페이지에서 최종 확인하세요.`+
-    (j.errors&&j.errors.length?`<details><summary>수집 오류 ${j.errors.length}건</summary>${j.errors.map(e=>`<div>${e[0]}<br>${e[1]}</div>`).join("")}</details>`:"");
+const load=u=>fetch(u+"?t="+Date.now()).then(r=>r.ok?r.json():null).catch(()=>null);
+Promise.all([load("data/seats.json"),load("data/thefishing.json")]).then(([a,b])=>{
+  if(!a) throw new Error("seats.json 없음");
+  const rows=[...a.rows];
+  let tfNote="더피싱(영흥도 등) 데이터 없음 — PC에서 update_thefishing.bat 실행";
+  if(b&&b.rows){
+    const keep=b.rows.filter(r=>r.date>=a.from);
+    rows.push(...keep);
+    const age=(Date.now()-new Date(b.updated.replace(" KST","").replace(" ","T")+"+09:00"))/36e5;
+    tfNote=`더피싱(영흥도 등) ${b.boats?b.boats.length:0}척 · 갱신 ${b.updated.replace(/^\d{4}-/,"").replace(" KST","")}`+(age>48?` <span style="color:var(--few)">(${Math.round(age/24)}일 지남 — PC에서 갱신 권장)</span>`:"");
+  }
+  const to=b&&b.to>a.to?b.to:a.to;
+  data={...a, rows, to};
+  $("#upd").innerHTML=`선상24 <b>${a.updated.replace(/^\d{4}-/,"").replace(" KST","")}</b>`;
+  const errs=[...(a.errors||[]),...(b&&b.errors||[])];
+  $("#foot").innerHTML=`선상24 공개 API는 2시간마다 자동 갱신. ${tfNote}. 숫자는 갱신 시각 기준이라 예약 페이지에서 최종 확인하세요.`+
+    (errs.length?`<details><summary>수집 오류 ${errs.length}건</summary>${errs.map(e=>`<div>${e[0]}<br>${e[1]}</div>`).join("")}</details>`:"");
   render();
 }).catch(e=>{
   $("#upd").textContent="데이터 없음";
