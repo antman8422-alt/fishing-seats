@@ -26,6 +26,12 @@ header{background:var(--sea);color:#fff;padding:calc(12px + env(safe-area-inset-
 .top h1{margin:0;font-size:17px;font-weight:900;letter-spacing:-.01em}
 .top .upd{font-size:12px;color:#b6c6d6;white-space:nowrap}
 .top .upd b{color:#fff;font-weight:500}
+.top .upd{border:1px solid #33506f;border-radius:999px;padding:4px 10px}
+.top .upd.busy{opacity:.75}
+.top .upd .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#8fd8bb;margin-right:5px;vertical-align:1px}
+.top .upd.busy .dot{background:#f2c46d;animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.top .upd.busy .dot{animation:none}}
 
 /* 날짜 띠 */
 .dates{display:flex;gap:6px;overflow-x:auto;padding:12px 0 12px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
@@ -82,7 +88,7 @@ main{padding:0 16px calc(24px + env(safe-area-inset-bottom))}
 <header>
   <div class="top">
     <h1>낚시배 빈자리 <span style="font-weight:400;font-size:13px;color:#b6c6d6">인천·경기</span></h1>
-    <div class="upd" id="upd">불러오는 중</div>
+    <button class="upd" id="upd" title="지금 다시 확인">불러오는 중</button>
   </div>
   <div class="dates" id="dates"></div>
 </header>
@@ -168,27 +174,80 @@ document.addEventListener("click",e=>{
 });
 $("#fPort").addEventListener("change",e=>{state.port=e.target.value; save(); render();});
 
+const W="https://fishing-proxy.antman8422.workers.dev";
 const load=u=>fetch(u+"?t="+Date.now()).then(r=>r.ok?r.json():null).catch(()=>null);
-Promise.all([load("data/seats.json"),load("data/thefishing.json")]).then(([a,b])=>{
-  if(!a) throw new Error("seats.json 없음");
-  const rows=[...a.rows];
-  let tfNote="더피싱(영흥도 등) 데이터 없음 — PC에서 update_thefishing.bat 실행";
-  if(b&&b.rows){
-    const keep=b.rows.filter(r=>r.date>=a.from);
-    rows.push(...keep);
-    const age=(Date.now()-new Date(b.updated.replace(" KST","").replace(" ","T")+"+09:00"))/36e5;
-    tfNote=`더피싱(영흥도 등) ${b.boats?b.boats.length:0}척 · 갱신 ${b.updated.replace(/^\d{4}-/,"").replace(" KST","")}`+(age>48?` <span style="color:var(--few)">(${Math.round(age/24)}일 지남 — PC에서 갱신 권장)</span>`:"");
+let base=null, tfBoats=[], tfRows=[], ssLive={}, busy=0, liveAt=null, errs=[];
+const fmtD=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const hm=d=>String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
+
+function rebuild(){
+  if(!base) return;
+  const live=new Set(Object.keys(ssLive));
+  const rows=base.rows.filter(r=>!(r.source==="선상24"&&live.has(r.date)));
+  for(const d of live) rows.push(...ssLive[d]);
+  rows.push(...tfRows);
+  data={...base, rows};
+  render(); status();
+}
+function status(){
+  const u=$("#upd");
+  u.classList.toggle("busy",busy>0);
+  u.innerHTML=busy>0?`<span class="dot"></span>실시간 확인 중`:`<span class="dot"></span>${liveAt?"실시간 <b>"+hm(liveAt)+"</b>":"갱신"} ↻`;
+  const tfN=new Set(tfRows.map(r=>r.uid)).size;
+  $("#foot").innerHTML=`선상24 인천·경기 + 더피싱 경기도 ${tfBoats.length}척을 열 때마다 실시간으로 확인합니다 (선상24는 날짜를 누를 때 그날만 다시 확인). 오른쪽 위 ↻ 를 누르면 전부 다시 확인. 숫자는 확인 시각 기준이니 예약 페이지에서 최종 확인하세요.`+
+    (errs.length?`<details><summary>확인 실패 ${errs.length}건</summary>${errs.slice(0,30).map(e=>`<div>${e}</div>`).join("")}</details>`:"");
+}
+async function track(p){ busy++; status(); try{ return await p; } finally{ busy--; liveAt=new Date(); status(); } }
+
+async function liveSS(date, force){
+  if(!force && ssLive[date]) return;
+  try{
+    const j=await fetch(`${W}/ss?date=${date}`).then(r=>r.json());
+    if(j.rows){ ssLive[date]=j.rows; rebuild(); } else errs.push(`선상24 ${date}: ${j.error||"실패"}`);
+  }catch(e){ errs.push(`선상24 ${date}: ${e.message}`); }
+}
+async function liveTF(){
+  if(!tfBoats.length) return;
+  const months=[...new Set([data.from,data.to].map(d=>d.slice(0,7).replace("-","")))];
+  const byUid={}; tfBoats.forEach(b=>byUid[b.u]=b);
+  const jobs=[];
+  for(const ym of months) for(let i=0;i<tfBoats.length;i+=12) jobs.push([ym,tfBoats.slice(i,i+12)]);
+  const fresh=[]; let k=0;
+  async function worker(){
+    while(k<jobs.length){
+      const [ym,chunk]=jobs[k++];
+      try{
+        const j=await fetch(`${W}/tf?ym=${ym}&b=${chunk.map(b=>b.u+":"+b.s).join(",")}`).then(r=>r.json());
+        (j.errors||[]).forEach(e=>errs.push(`더피싱 ${byUid[e.uid]?byUid[e.uid].n:e.uid}: ${e.error}`));
+        for(const r of (j.rows||[])){
+          const b=byUid[r.uid]; if(!b) continue;
+          fresh.push({source:"더피싱",port:b.p,boat:b.n,date:r.date,tide:r.tide,species:r.species,time:"",price:r.price,
+            left:r.left,capacity:null,link:`https://thefishing.kr/reservation/list.php?uid=${b.u}`,raw:"",uid:b.u});
+        }
+      }catch(e){ errs.push(`더피싱 ${ym}: ${e.message}`); }
+    }
   }
-  const to=b&&b.to>a.to?b.to:a.to;
-  data={...a, rows, to};
-  $("#upd").innerHTML=`선상24 <b>${a.updated.replace(/^\d{4}-/,"").replace(" KST","")}</b>`;
-  const errs=[...(a.errors||[]),...(b&&b.errors||[])];
-  $("#foot").innerHTML=`선상24 공개 API는 2시간마다 자동 갱신. ${tfNote}. 숫자는 갱신 시각 기준이라 예약 페이지에서 최종 확인하세요.`+
-    (errs.length?`<details><summary>수집 오류 ${errs.length}건</summary>${errs.map(e=>`<div>${e[0]}<br>${e[1]}</div>`).join("")}</details>`:"");
-  render();
+  await Promise.all(Array.from({length:6},worker));
+  tfRows=fresh.filter(r=>r.date>=data.from&&r.date<=data.to);
+  rebuild();
+}
+function refreshAll(){
+  errs=[]; ssLive={};
+  track(Promise.all([liveSS(state.date,true), liveTF()]));
+}
+$("#upd").addEventListener("click",()=>{ if(!busy) refreshAll(); });
+document.addEventListener("click",e=>{ const d=e.target.closest(".d"); if(d) track(liveSS(d.dataset.d)); });
+
+Promise.all([load("data/seats.json"),load("data/tf_boats.json")]).then(([a,b])=>{
+  const today=fmtD(new Date()); const end=new Date(); end.setDate(end.getDate()+28);
+  base=a&&a.rows?a:{rows:[]};
+  base={...base, from:today, to:fmtD(end), rows:base.rows.filter(r=>r.date>=today)};
+  tfBoats=(b&&b.boats)||[];
+  data={...base}; render(); status();
+  refreshAll();
 }).catch(e=>{
-  $("#upd").textContent="데이터 없음";
-  $("#list").innerHTML=`<div class="empty">data/seats.json 을 불러오지 못했습니다 (${e.message}).<br>GitHub Actions 가 아직 한 번도 돌지 않았거나 Pages 설정이 안 된 상태입니다.</div>`;
+  $("#upd").textContent="오류";
+  $("#list").innerHTML=`<div class="empty">불러오지 못했습니다 (${e.message}).</div>`;
 });
 })();
 </script>
