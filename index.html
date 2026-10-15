@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f2740">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>낚시배 빈자리</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --sea:#0f2740; --sea-2:#1b3a5c; --foam:#f3f6f5; --line:#d9e0de; --ink:#152028; --mute:#6a7a84;
+  --open:#13835f; --open-bg:#e2f3ec; --full:#9aa6ad; --full-bg:#eef1f2; --few:#b4540d; --few-bg:#fdeedd;
+  --chip:#fff;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--foam);color:var(--ink);font-family:"Noto Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;-webkit-text-size-adjust:100%}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+a{color:inherit}
+
+/* 상단 */
+header{background:var(--sea);color:#fff;padding:calc(12px + env(safe-area-inset-top)) 16px 0;position:sticky;top:0;z-index:5}
+.top{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.top h1{margin:0;font-size:17px;font-weight:900;letter-spacing:-.01em}
+.top .upd{font-size:12px;color:#b6c6d6;white-space:nowrap}
+.top .upd b{color:#fff;font-weight:500}
+
+/* 날짜 띠 */
+.dates{display:flex;gap:6px;overflow-x:auto;padding:12px 0 12px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.dates::-webkit-scrollbar{display:none}
+.d{flex:0 0 auto;width:56px;border-radius:10px;padding:7px 0 6px;text-align:center;background:var(--sea-2);color:#dbe6ef;line-height:1.15}
+.d .w{font-size:11px;opacity:.8}
+.d .n{font-size:18px;font-weight:700;display:block;margin:1px 0}
+.d .c{font-size:11px;font-weight:500;color:#8fd8bb}
+.d .c.z{color:#7f93a6}
+.d.sat .w,.d.sat .n{color:#9fc3ee}
+.d.sun .w,.d.sun .n{color:#f0a8a8}
+.d.on{background:#fff;color:var(--ink)}
+.d.on .w{color:var(--mute);opacity:1}
+.d.on .c{color:var(--open)}
+.d.on .c.z{color:var(--mute)}
+.d.on.sat .n,.d.on.sat .w{color:#1d5fa8}
+.d.on.sun .n,.d.on.sun .w{color:#c0392b}
+
+/* 필터 */
+.filters{display:flex;gap:8px;padding:10px 16px;overflow-x:auto;scrollbar-width:none;align-items:center}
+.filters::-webkit-scrollbar{display:none}
+.chip{flex:0 0 auto;border:1px solid var(--line);background:var(--chip);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:500;color:var(--ink)}
+.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+select.chip{appearance:none;-webkit-appearance:none;padding-right:26px;background:var(--chip) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236a7a84'/%3E%3C/svg%3E") no-repeat right 10px center}
+
+/* 목록 */
+main{padding:0 16px calc(24px + env(safe-area-inset-bottom))}
+.sum{font-size:13px;color:var(--mute);padding:4px 0 10px}
+.sum b{color:var(--ink);font-weight:700}
+.port{margin:14px 0 6px;font-size:13px;font-weight:700;color:var(--mute);display:flex;justify-content:space-between;align-items:baseline}
+.port span{font-weight:400}
+.row{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin-bottom:6px;text-decoration:none}
+.row:active{background:#f7faf9}
+.row .b{font-size:15px;font-weight:700;letter-spacing:-.01em}
+.row .m{font-size:12px;color:var(--mute);grid-column:1;line-height:1.5}
+.row .m i{font-style:normal;color:var(--ink)}
+.seat{grid-row:1/3;grid-column:2;text-align:right;min-width:62px;border-radius:9px;padding:6px 9px;line-height:1.05}
+.seat b{font-size:22px;font-weight:900;display:block}
+.seat small{font-size:11px;font-weight:500}
+.seat.open{background:var(--open-bg);color:var(--open)}
+.seat.few{background:var(--few-bg);color:var(--few)}
+.seat.full{background:var(--full-bg);color:var(--full)}
+.seat.full b{font-size:15px;font-weight:700;padding:4px 0}
+.src{font-size:10px;color:var(--mute);border:1px solid var(--line);border-radius:4px;padding:0 4px;margin-left:5px;vertical-align:1px}
+.empty{padding:40px 8px;text-align:center;color:var(--mute);font-size:14px;line-height:1.7}
+.foot{margin-top:28px;font-size:11.5px;color:var(--mute);line-height:1.7}
+.foot details{margin-top:6px}
+.foot summary{cursor:pointer}
+@media (prefers-reduced-motion:no-preference){.row{transition:background .12s}}
+:focus-visible{outline:2px solid #1d5fa8;outline-offset:2px}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>낚시배 빈자리 <span style="font-weight:400;font-size:13px;color:#b6c6d6">인천·경기</span></h1>
+    <div class="upd" id="upd">불러오는 중</div>
+  </div>
+  <div class="dates" id="dates"></div>
+</header>
+<div class="filters" id="filters">
+  <button class="chip on" data-k="open" id="fOpen">빈자리만</button>
+  <select class="chip" id="fPort"><option value="">모든 항구</option></select>
+  <button class="chip" data-f="쭈갑">쭈꾸미·갑오징어</button>
+  <button class="chip" data-f="광우">광어·우럭</button>
+  <button class="chip" data-f="참돔">참돔</button>
+</div>
+<main>
+  <div class="sum" id="sum"></div>
+  <div id="list"></div>
+  <div class="foot" id="foot"></div>
+</main>
+<script>
+(function(){
+const $=s=>document.querySelector(s);
+const WD=["일","월","화","수","목","금","토"];
+const FISH={ "쭈갑":["주꾸미","쭈꾸미","갑오징어","쭈갑","갑이","갑","쭈"], "광우":["광어","우럭","다운샷"], "참돔":["참돔","타이라바"] };
+let data=null, state={date:null, open:true, port:"", fish:""};
+try{ Object.assign(state, JSON.parse(localStorage.getItem("seats.state")||"{}")); }catch(e){}
+const q=new URLSearchParams(location.search).get("d"); if(q) state.date=q;
+
+function save(){ try{ localStorage.setItem("seats.state", JSON.stringify(state)); }catch(e){} }
+function fishOk(r){ if(!state.fish) return true; const ks=FISH[state.fish]||[]; const s=(r.species||"")+" "+(r.raw||""); return ks.some(k=>s.includes(k)); }
+function portOf(r){ return (r.port||"").replace(/\s+/g," ").trim()||"항구 미표기"; }
+function portKey(p){ // 비슷한 표기 묶기
+  if(/영흥|진두/.test(p)) return "영흥도 진두항"; if(/전곡/.test(p)) return "전곡항"; if(/궁평/.test(p)) return "궁평항";
+  if(/오이도|시화/.test(p)) return "오이도·시화"; if(/잠진|거잠포|영종|큰무리|삼목/.test(p)) return "영종도(잠진·거잠포·삼목)";
+  if(/남항/.test(p)) return "인천 남항"; if(/연안/.test(p)) return "인천 연안부두"; if(/만석/.test(p)) return "만석부두";
+  if(/평택/.test(p)) return "평택항"; if(/제부/.test(p)) return "제부도"; if(/탄도|대부|방아/.test(p)) return "대부도·탄도항";
+  if(/인천$/.test(p)) return "인천(항구 미표기)"; return p;
+}
+
+function render(){
+  const rows=data.rows;
+  const dates=[...new Set(rows.map(r=>r.date))].sort();
+  const fmt=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+  const all=[]; const d0=new Date(data.from+"T00:00:00"); const d1=new Date(data.to+"T00:00:00");
+  for(let d=new Date(d0); d<=d1; d.setDate(d.getDate()+1)) all.push(fmt(d));
+  if(!state.date||!all.includes(state.date)) state.date=all.find(d=>rows.some(r=>r.date===d&&r.left>0))||all[0];
+
+  // 날짜 띠
+  $("#dates").innerHTML=all.map(d=>{
+    const dt=new Date(d+"T00:00:00"), w=dt.getDay();
+    const n=rows.filter(r=>r.date===d&&r.left>0&&fishOk(r)&&(!state.port||portKey(portOf(r))===state.port)).length;
+    return `<button class="d ${w===6?"sat":w===0?"sun":""} ${d===state.date?"on":""}" data-d="${d}"><span class="w">${WD[w]}</span><span class="n">${+d.slice(8)}</span><span class="c ${n?"":"z"}">${n?n+"척":"–"}</span></button>`;
+  }).join("");
+  const on=$(".d.on"); if(on) on.scrollIntoView({inline:"center",block:"nearest"});
+
+  // 항구 select
+  const ports=[...new Set(rows.map(r=>portKey(portOf(r))))].sort((a,b)=>a.localeCompare(b,"ko"));
+  const sel=$("#fPort"); const cur=state.port;
+  sel.innerHTML=`<option value="">모든 항구</option>`+ports.map(p=>`<option ${p===cur?"selected":""}>${p}</option>`).join("");
+  sel.classList.toggle("on",!!cur);
+  $("#fOpen").classList.toggle("on",state.open);
+  document.querySelectorAll("[data-f]").forEach(b=>b.classList.toggle("on",b.dataset.f===state.fish));
+
+  // 목록
+  let day=rows.filter(r=>r.date===state.date&&fishOk(r)&&(!state.port||portKey(portOf(r))===state.port));
+  const total=day.length, openN=day.filter(r=>r.left>0).length;
+  if(state.open) day=day.filter(r=>r.left>0);
+  const dt=new Date(state.date+"T00:00:00");
+  $("#sum").innerHTML=`${dt.getMonth()+1}월 ${dt.getDate()}일(${WD[dt.getDay()]}) · 출항 <b>${total}</b>척 중 빈자리 <b>${openN}</b>척`;
+  if(!day.length){ $("#list").innerHTML=`<div class="empty">${state.open?"이날은 남은 자리가 없습니다.<br>다른 날짜를 눌러보거나 ‘빈자리만’을 꺼서 마감된 배도 보세요.":"이날 출항 정보가 없습니다."}</div>`; return; }
+  const g={}; day.forEach(r=>{const k=portKey(portOf(r)); (g[k]=g[k]||[]).push(r);});
+  $("#list").innerHTML=Object.keys(g).sort((a,b)=>a.localeCompare(b,"ko")).map(p=>{
+    const rs=g[p].sort((a,b)=>(b.left||0)-(a.left||0)||a.boat.localeCompare(b.boat,"ko"));
+    return `<div class="port">${p}<span>${rs.filter(r=>r.left>0).length}/${rs.length}</span></div>`+rs.map(r=>{
+      const cls=r.left>0?(r.left<=2?"few":"open"):"full";
+      const seat=r.left>0?`<b>${r.left}</b><small>남은자리${r.capacity?" / "+r.capacity:""}</small>`:`<b>마감</b>`;
+      const meta=[r.species, r.time, r.price, r.tide].filter(Boolean).map(x=>`<i>${x}</i>`).join(" · ");
+      return `<a class="row" href="${r.link}" target="_blank" rel="noopener"><div class="b">${r.boat}<span class="src">${r.source}</span></div><div class="m">${meta||"상세는 예약 페이지에서"}</div><div class="seat ${cls}">${seat}</div></a>`;
+    }).join("");
+  }).join("");
+}
+
+document.addEventListener("click",e=>{
+  const d=e.target.closest(".d"); if(d){state.date=d.dataset.d; save(); render(); return;}
+  if(e.target.closest("#fOpen")){state.open=!state.open; save(); render(); return;}
+  const f=e.target.closest("[data-f]"); if(f){state.fish=state.fish===f.dataset.f?"":f.dataset.f; save(); render();}
+});
+$("#fPort").addEventListener("change",e=>{state.port=e.target.value; save(); render();});
+
+fetch("data/seats.json?t="+Date.now()).then(r=>{if(!r.ok) throw new Error(r.status); return r.json();}).then(j=>{
+  data=j;
+  $("#upd").innerHTML=`갱신 <b>${j.updated.replace(/^\d{4}-/,"").replace(" KST","")}</b>`;
+  const tf=j.boats?j.boats.length:0;
+  $("#foot").innerHTML=`선상24 공개 API + 더피싱(thefishing.kr) 경기도 권역 ${tf}척. 2시간마다 자동 갱신되며, 숫자는 갱신 시각 기준이라 예약 페이지에서 최종 확인하세요.`+
+    (j.errors&&j.errors.length?`<details><summary>수집 오류 ${j.errors.length}건</summary>${j.errors.map(e=>`<div>${e[0]}<br>${e[1]}</div>`).join("")}</details>`:"");
+  render();
+}).catch(e=>{
+  $("#upd").textContent="데이터 없음";
+  $("#list").innerHTML=`<div class="empty">data/seats.json 을 불러오지 못했습니다 (${e.message}).<br>GitHub Actions 가 아직 한 번도 돌지 않았거나 Pages 설정이 안 된 상태입니다.</div>`;
+});
+})();
+</script>
+</body>
+</html>
