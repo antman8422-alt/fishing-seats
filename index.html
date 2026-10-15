@@ -82,173 +82,194 @@ main{padding:0 16px calc(24px + env(safe-area-inset-bottom))}
 .foot summary{cursor:pointer}
 @media (prefers-reduced-motion:no-preference){.row{transition:background .12s}}
 :focus-visible{outline:2px solid #1d5fa8;outline-offset:2px}
+
+/* 지역 탭 */
+.tabs{display:flex;gap:4px;padding:0 0 12px}
+.tab{flex:1;border-radius:9px;padding:7px 0;font-size:13px;font-weight:700;color:#b6c6d6;background:var(--sea-2)}
+.tab.on{background:#fff;color:var(--ink)}
+.row .pt{font-size:11.5px;color:var(--mute);font-weight:500;margin-left:6px}
+.group{margin:16px 0 6px;font-size:14px;font-weight:900;color:var(--ink);display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid var(--ink);padding-bottom:4px}
+.group span{font-size:12px;font-weight:500;color:var(--mute)}
+.note{font-size:12px;color:var(--few);padding:0 0 8px}
 </style>
 </head>
 <body>
 <header>
   <div class="top">
-    <h1>낚시배 빈자리 <span style="font-weight:400;font-size:13px;color:#b6c6d6">인천·경기</span></h1>
+    <h1>낚시배 빈자리</h1>
     <button class="upd" id="upd" title="지금 다시 확인">불러오는 중</button>
   </div>
   <div class="dates" id="dates"></div>
+  <div class="tabs" id="tabs">
+    <button class="tab" data-r="gg">인천·경기</button>
+    <button class="tab" data-r="cn">충남 북부</button>
+    <button class="tab" data-r="cs">충남 남부</button>
+  </div>
 </header>
 <div class="filters" id="filters">
-  <button class="chip on" data-k="open" id="fOpen">빈자리만</button>
-  <select class="chip" id="fPort"><option value="">모든 항구</option></select>
+  <button class="chip on" id="fOpen">빈자리만</button>
+  <select class="chip" id="fGrp"><option value="">전체 지역</option></select>
   <button class="chip" data-f="쭈갑">쭈꾸미·갑오징어</button>
   <button class="chip" data-f="광우">광어·우럭</button>
   <button class="chip" data-f="참돔">참돔</button>
 </div>
 <main>
   <div class="sum" id="sum"></div>
+  <div class="note" id="note"></div>
   <div id="list"></div>
   <div class="foot" id="foot"></div>
 </main>
 <script>
 (function(){
 const $=s=>document.querySelector(s);
+const W="https://fishing-proxy.antman8422.workers.dev";
+const DAYS=60;
 const WD=["일","월","화","수","목","금","토"];
 const FISH={ "쭈갑":["주꾸미","쭈꾸미","갑오징어","쭈갑","갑이","갑","쭈"], "광우":["광어","우럭","다운샷"], "참돔":["참돔","타이라바"] };
-let data=null, state={date:null, open:true, port:"", fish:""};
-try{ Object.assign(state, JSON.parse(localStorage.getItem("seats.state")||"{}")); }catch(e){}
+const REG={
+  gg:{name:"인천·경기", area:"-405,511,2519,514,515,-404,504,505,507,506", groups:["인천","영흥도","경기 남부","평택"]},
+  cn:{name:"충남 북부", area:"501,499,500,502", groups:["충남 북부"]},
+  cs:{name:"충남 남부", area:"497,496,498", groups:["충남 남부"]},
+};
+let state={date:null, open:true, grp:"", fish:"", reg:"gg"};
+try{ Object.assign(state, JSON.parse(localStorage.getItem("seats.state2")||"{}")); }catch(e){}
+if(!REG[state.reg]) state.reg="gg";
 const q=new URLSearchParams(location.search).get("d"); if(q) state.date=q;
+function save(){ try{ localStorage.setItem("seats.state2", JSON.stringify(state)); }catch(e){} }
 
-function save(){ try{ localStorage.setItem("seats.state", JSON.stringify(state)); }catch(e){} }
-function fishOk(r){ if(!state.fish) return true; const ks=FISH[state.fish]||[]; const s=(r.species||"")+" "+(r.raw||""); return ks.some(k=>s.includes(k)); }
-function portOf(r){ return (r.port||"").replace(/\s+/g," ").trim()||"항구 미표기"; }
-function portKey(p){ // 비슷한 표기 묶기
-  if(/영흥|진두/.test(p)) return "영흥도 진두항"; if(/전곡/.test(p)) return "전곡항"; if(/궁평/.test(p)) return "궁평항";
-  if(/오이도|시화/.test(p)) return "오이도·시화"; if(/잠진|거잠포|영종|큰무리|삼목/.test(p)) return "영종도(잠진·거잠포·삼목)";
-  if(/남항/.test(p)) return "인천 남항"; if(/연안/.test(p)) return "인천 연안부두"; if(/만석/.test(p)) return "만석부두";
-  if(/평택/.test(p)) return "평택항"; if(/제부/.test(p)) return "제부도"; if(/탄도|대부|방아/.test(p)) return "대부도·탄도항";
-  if(/인천$/.test(p)) return "인천(항구 미표기)"; return p;
+const fmtD=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const hm=d=>String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
+const today=fmtD(new Date()); const endD=new Date(); endD.setDate(endD.getDate()+DAYS); const until=fmtD(endD);
+
+// 지역(그룹) 판정: 더피싱 배는 목록에 g 가 있고, 선상24 는 시·군(raw) + 항구로 판정
+function groupOf(r){
+  if(r.g) return r.g;
+  const p=r.port||"", sub=((r.raw||"").split(" ")[1])||"";
+  if(/영흥|진두/.test(p)) return "영흥도";
+  if(/당진|서산|태안|아산/.test(sub)) return "충남 북부";
+  if(/보령|홍성|서천/.test(sub)) return "충남 남부";
+  if(/평택/.test(sub+p)) return "평택";
+  if(/시흥|안산|화성/.test(sub)||/오이도|시화|대부|탄도|전곡|제부|궁평|방아/.test(p)) return "경기 남부";
+  return "인천";
 }
+function regOf(g){ return g==="충남 북부"?"cn":g==="충남 남부"?"cs":"gg"; }
+function fishOk(r){ if(!state.fish) return true; const ks=FISH[state.fish]||[]; const s=(r.species||"")+" "+(r.raw||""); return ks.some(k=>s.includes(k)); }
+const shown=r=>r.reg===state.reg&&fishOk(r)&&(!state.grp||r.grp===state.grp);
+
+let base=[], tfBoats=[], tfRows={}, ssLive={}, busy=0, liveAt=null, errs=[], tfDone={}, ssMax=null;
+function allRows(){
+  const out=[];
+  const liveDates=new Set(Object.keys(ssLive).filter(k=>k.startsWith(state.reg+"|")).map(k=>k.split("|")[1]));
+  for(const r of base) if(r.reg===state.reg && !liveDates.has(r.date)) out.push(r);
+  for(const k in ssLive) if(k.startsWith(state.reg+"|")) out.push(...ssLive[k]);
+  out.push(...(tfRows[state.reg]||[]));
+  return out;
+}
+function tag(r){ r.grp=groupOf(r); r.reg=regOf(r.grp); return r; }
 
 function render(){
-  const rows=data.rows;
-  const dates=[...new Set(rows.map(r=>r.date))].sort();
-  const fmt=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
-  const all=[]; const d0=new Date(data.from+"T00:00:00"); const d1=new Date(data.to+"T00:00:00");
-  for(let d=new Date(d0); d<=d1; d.setDate(d.getDate()+1)) all.push(fmt(d));
-  if(!state.date||!all.includes(state.date)) state.date=all.find(d=>rows.some(r=>r.date===d&&r.left>0))||all[0];
-
-  // 날짜 띠
+  const rows=allRows();
+  const all=[]; for(let d=new Date(today+"T00:00:00"); fmtD(d)<=until; d.setDate(d.getDate()+1)) all.push(fmtD(d));
+  if(!state.date||!all.includes(state.date)) state.date=all[0];
+  document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("on",b.dataset.r===state.reg));
   $("#dates").innerHTML=all.map(d=>{
     const dt=new Date(d+"T00:00:00"), w=dt.getDay();
-    const n=rows.filter(r=>r.date===d&&r.left>0&&fishOk(r)&&(!state.port||portKey(portOf(r))===state.port)).length;
+    const n=rows.filter(r=>r.date===d&&r.left>0&&shown(r)).length;
     return `<button class="d ${w===6?"sat":w===0?"sun":""} ${d===state.date?"on":""}" data-d="${d}"><span class="w">${WD[w]}</span><span class="n">${+d.slice(8)}</span><span class="c ${n?"":"z"}">${n?n+"척":"–"}</span></button>`;
   }).join("");
   const on=$(".d.on"); if(on) on.scrollIntoView({inline:"center",block:"nearest"});
-
-  // 항구 select
-  const ports=[...new Set(rows.map(r=>portKey(portOf(r))))].sort((a,b)=>a.localeCompare(b,"ko"));
-  const sel=$("#fPort"); const cur=state.port;
-  sel.innerHTML=`<option value="">모든 항구</option>`+ports.map(p=>`<option ${p===cur?"selected":""}>${p}</option>`).join("");
-  sel.classList.toggle("on",!!cur);
+  const grps=REG[state.reg].groups;
+  $("#fGrp").innerHTML=`<option value="">전체 지역</option>`+(grps.length>1?grps.map(g=>`<option ${g===state.grp?"selected":""}>${g}</option>`).join(""):"");
+  $("#fGrp").style.display=grps.length>1?"":"none";
+  $("#fGrp").classList.toggle("on",!!state.grp);
   $("#fOpen").classList.toggle("on",state.open);
   document.querySelectorAll("[data-f]").forEach(b=>b.classList.toggle("on",b.dataset.f===state.fish));
 
-  // 목록
-  let day=rows.filter(r=>r.date===state.date&&fishOk(r)&&(!state.port||portKey(portOf(r))===state.port));
+  let day=rows.filter(r=>r.date===state.date&&shown(r));
   const total=day.length, openN=day.filter(r=>r.left>0).length;
   if(state.open) day=day.filter(r=>r.left>0);
   const dt=new Date(state.date+"T00:00:00");
-  $("#sum").innerHTML=`${dt.getMonth()+1}월 ${dt.getDate()}일(${WD[dt.getDay()]}) · 출항 <b>${total}</b>척 중 빈자리 <b>${openN}</b>척`;
-  if(!day.length){ $("#list").innerHTML=`<div class="empty">${state.open?"이날은 남은 자리가 없습니다.<br>다른 날짜를 눌러보거나 ‘빈자리만’을 꺼서 마감된 배도 보세요.":"이날 출항 정보가 없습니다."}</div>`; return; }
-  const g={}; day.forEach(r=>{const k=portKey(portOf(r)); (g[k]=g[k]||[]).push(r);});
-  $("#list").innerHTML=Object.keys(g).sort((a,b)=>a.localeCompare(b,"ko")).map(p=>{
-    const rs=g[p].sort((a,b)=>(b.left||0)-(a.left||0)||a.boat.localeCompare(b.boat,"ko"));
-    return `<div class="port">${p}<span>${rs.filter(r=>r.left>0).length}/${rs.length}</span></div>`+rs.map(r=>{
+  $("#sum").innerHTML=`${dt.getMonth()+1}월 ${dt.getDate()}일(${WD[dt.getDay()]}) · ${REG[state.reg].name} 출항 <b>${total}</b>척 중 빈자리 <b>${openN}</b>척`;
+  $("#note").textContent=(ssMax&&state.date>ssMax)?`선상24는 ${+ssMax.slice(5,7)}월 ${+ssMax.slice(8)}일 이후 일정이 아직 안 열려 있어 더피싱 배만 보입니다.`:"";
+  if(!day.length){ $("#list").innerHTML=`<div class="empty">${busy?"확인 중입니다…":state.open?"이날은 남은 자리가 없습니다.<br>다른 날짜를 누르거나 ‘빈자리만’을 꺼서 마감된 배도 보세요.":"이날 출항 정보가 없습니다."}</div>`; return; }
+  const g={}; day.forEach(r=>(g[r.grp]=g[r.grp]||[]).push(r));
+  const order=grps.filter(x=>g[x]).concat(Object.keys(g).filter(x=>!grps.includes(x)));
+  $("#list").innerHTML=order.map(k=>{
+    const rs=g[k].sort((a,b)=>(b.left||0)-(a.left||0)||a.port.localeCompare(b.port,"ko")||a.boat.localeCompare(b.boat,"ko"));
+    return `<div class="group">${k}<span>빈자리 ${rs.filter(r=>r.left>0).length} / ${rs.length}척</span></div>`+rs.map(r=>{
       const cls=r.left>0?(r.left<=2?"few":"open"):"full";
       const seat=r.left>0?`<b>${r.left}</b><small>남은자리${r.capacity?" / "+r.capacity:""}</small>`:`<b>마감</b>`;
       const meta=[r.species, r.time, r.price, r.tide].filter(Boolean).map(x=>`<i>${x}</i>`).join(" · ");
-      return `<a class="row" href="${r.link}" target="_blank" rel="noopener"><div class="b">${r.boat}<span class="src">${r.source}</span></div><div class="m">${meta||"상세는 예약 페이지에서"}</div><div class="seat ${cls}">${seat}</div></a>`;
+      return `<a class="row" href="${r.link}" target="_blank" rel="noopener"><div class="b">${r.boat}<span class="pt">${r.port||""}</span><span class="src">${r.source}</span></div><div class="m">${meta||"상세는 예약 페이지에서"}</div><div class="seat ${cls}">${seat}</div></a>`;
     }).join("");
   }).join("");
-}
-
-document.addEventListener("click",e=>{
-  const d=e.target.closest(".d"); if(d){state.date=d.dataset.d; save(); render(); return;}
-  if(e.target.closest("#fOpen")){state.open=!state.open; save(); render(); return;}
-  const f=e.target.closest("[data-f]"); if(f){state.fish=state.fish===f.dataset.f?"":f.dataset.f; save(); render();}
-});
-$("#fPort").addEventListener("change",e=>{state.port=e.target.value; save(); render();});
-
-const W="https://fishing-proxy.antman8422.workers.dev";
-const load=u=>fetch(u+"?t="+Date.now()).then(r=>r.ok?r.json():null).catch(()=>null);
-let base=null, tfBoats=[], tfRows=[], ssLive={}, busy=0, liveAt=null, errs=[];
-const fmtD=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
-const hm=d=>String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
-
-function rebuild(){
-  if(!base) return;
-  const live=new Set(Object.keys(ssLive));
-  const rows=base.rows.filter(r=>!(r.source==="선상24"&&live.has(r.date)));
-  for(const d of live) rows.push(...ssLive[d]);
-  rows.push(...tfRows);
-  data={...base, rows};
-  render(); status();
 }
 function status(){
   const u=$("#upd");
   u.classList.toggle("busy",busy>0);
   u.innerHTML=busy>0?`<span class="dot"></span>실시간 확인 중`:`<span class="dot"></span>${liveAt?"실시간 <b>"+hm(liveAt)+"</b>":"갱신"} ↻`;
-  const tfN=new Set(tfRows.map(r=>r.uid)).size;
-  $("#foot").innerHTML=`선상24 인천·경기 + 더피싱 경기도 ${tfBoats.length}척을 열 때마다 실시간으로 확인합니다 (선상24는 날짜를 누를 때 그날만 다시 확인). 오른쪽 위 ↻ 를 누르면 전부 다시 확인. 숫자는 확인 시각 기준이니 예약 페이지에서 최종 확인하세요.`+
+  const n=tfBoats.filter(b=>b.r===state.reg).length;
+  $("#foot").innerHTML=`${REG[state.reg].name}: 선상24 + 더피싱 ${n}척을 실시간으로 확인합니다. 날짜를 누르면 그날 선상24를 다시 확인하고, 오른쪽 위 ↻ 는 전부 다시 확인합니다. 숫자는 확인 시각 기준이니 예약 페이지에서 최종 확인하세요.`+
     (errs.length?`<details><summary>확인 실패 ${errs.length}건</summary>${errs.slice(0,30).map(e=>`<div>${e}</div>`).join("")}</details>`:"");
 }
-async function track(p){ busy++; status(); try{ return await p; } finally{ busy--; liveAt=new Date(); status(); } }
+const redraw=()=>{ render(); status(); };
+async function track(p){ busy++; status(); try{ return await p; } finally{ busy--; liveAt=new Date(); redraw(); } }
 
 async function liveSS(date, force){
-  if(!force && ssLive[date]) return;
+  const reg=state.reg, key=reg+"|"+date;
+  if(!force && ssLive[key]) return;
   try{
-    const j=await fetch(`${W}/ss?date=${date}`).then(r=>r.json());
-    if(j.rows){ ssLive[date]=j.rows; rebuild(); } else errs.push(`선상24 ${date}: ${j.error||"실패"}`);
+    const j=await fetch(`${W}/ss?date=${date}&area=${REG[reg].area}`).then(r=>r.json());
+    if(j.rows){ ssLive[key]=j.rows.map(tag).filter(r=>r.reg===reg); redraw(); } else errs.push(`선상24 ${date}: ${j.error||"실패"}`);
   }catch(e){ errs.push(`선상24 ${date}: ${e.message}`); }
 }
-async function liveTF(){
-  if(!tfBoats.length) return;
-  const months=[...new Set([data.from,data.to].map(d=>d.slice(0,7).replace("-","")))];
-  const byUid={}; tfBoats.forEach(b=>byUid[b.u]=b);
-  const jobs=[];
-  for(const ym of months) for(let i=0;i<tfBoats.length;i+=12) jobs.push([ym,tfBoats.slice(i,i+12)]);
-  const fresh=[]; let k=0;
-  async function worker(){
-    while(k<jobs.length){
-      const [ym,chunk]=jobs[k++];
+async function liveTF(reg, force){
+  if(!force && tfDone[reg]) return;
+  const boats=tfBoats.filter(b=>b.r===reg); if(!boats.length) return;
+  const months=[]; for(let d=new Date(today.slice(0,8)+"01T00:00:00"); fmtD(d)<=until; d.setMonth(d.getMonth()+1)) months.push(fmtD(d).slice(0,7).replace("-",""));
+  const byUid={}; boats.forEach(b=>byUid[b.u]=b);
+  const fresh=[];
+  for(const ym of months){                       // 가까운 달부터 차례로 → 달마다 화면 갱신
+    const jobs=[]; for(let i=0;i<boats.length;i+=20) jobs.push(boats.slice(i,i+20));
+    let k=0;
+    const worker=async()=>{ while(k<jobs.length){ const chunk=jobs[k++];
       try{
         const j=await fetch(`${W}/tf?ym=${ym}&b=${chunk.map(b=>b.u+":"+b.s).join(",")}`).then(r=>r.json());
         (j.errors||[]).forEach(e=>errs.push(`더피싱 ${byUid[e.uid]?byUid[e.uid].n:e.uid}: ${e.error}`));
-        for(const r of (j.rows||[])){
-          const b=byUid[r.uid]; if(!b) continue;
-          fresh.push({source:"더피싱",port:b.p,boat:b.n,date:r.date,tide:r.tide,species:r.species,time:"",price:(parseInt(r.price)>0&&parseInt(r.price)<=40)?r.price:"",
-            left:r.left,capacity:null,link:`https://thefishing.kr/reservation/list.php?uid=${b.u}`,raw:"",uid:b.u});
+        for(const r of (j.rows||[])){ const b=byUid[r.uid]; if(!b||r.date<today||r.date>until) continue;
+          const pr=parseInt(r.price);
+          fresh.push({source:"더피싱",port:b.p,boat:b.n,date:r.date,tide:r.tide,species:r.species,time:"",price:(pr>0&&pr<=40)?r.price:"",
+            left:r.left,capacity:null,link:`https://thefishing.kr/reservation/list.php?uid=${b.u}`,raw:"",g:b.g,grp:b.g,reg});
         }
       }catch(e){ errs.push(`더피싱 ${ym}: ${e.message}`); }
-    }
+    }};
+    await Promise.all(Array.from({length:10},worker));
+    tfRows[reg]=fresh.slice(); if(reg===state.reg) redraw();
   }
-  await Promise.all(Array.from({length:6},worker));
-  tfRows=fresh.filter(r=>r.date>=data.from&&r.date<=data.to);
-  rebuild();
+  tfDone[reg]=true;
 }
-function refreshAll(){
-  errs=[]; ssLive={};
-  track(Promise.all([liveSS(state.date,true), liveTF()]));
+function refresh(force){
+  if(force){ errs=[]; Object.keys(ssLive).forEach(k=>{ if(k.startsWith(state.reg+"|")) delete ssLive[k]; }); tfDone[state.reg]=false; }
+  track(Promise.all([liveSS(state.date,force), liveTF(state.reg,force)]));
 }
-$("#upd").addEventListener("click",()=>{ if(!busy) refreshAll(); });
-document.addEventListener("click",e=>{ const d=e.target.closest(".d"); if(d) track(liveSS(d.dataset.d)); });
 
-Promise.all([load("data/seats.json"),load("data/tf_boats.json")]).then(([a,b])=>{
-  const today=fmtD(new Date()); const end=new Date(); end.setDate(end.getDate()+28);
-  base=a&&a.rows?a:{rows:[]};
-  base={...base, from:today, to:fmtD(end), rows:base.rows.filter(r=>r.date>=today)};
-  tfBoats=(b&&b.boats)||[];
-  data={...base}; render(); status();
-  refreshAll();
-}).catch(e=>{
-  $("#upd").textContent="오류";
-  $("#list").innerHTML=`<div class="empty">불러오지 못했습니다 (${e.message}).</div>`;
+document.addEventListener("click",e=>{
+  const d=e.target.closest(".d"); if(d){ state.date=d.dataset.d; save(); render(); track(liveSS(state.date)); return; }
+  const t=e.target.closest(".tab"); if(t){ if(state.reg!==t.dataset.r){ state.reg=t.dataset.r; state.grp=""; save(); redraw(); refresh(false);} return; }
+  if(e.target.closest("#fOpen")){ state.open=!state.open; save(); render(); return; }
+  const f=e.target.closest("[data-f]"); if(f){ state.fish=state.fish===f.dataset.f?"":f.dataset.f; save(); render(); return; }
+  if(e.target.closest("#upd")&&!busy) refresh(true);
 });
+$("#fGrp").addEventListener("change",e=>{ state.grp=e.target.value; save(); render(); });
+
+const load=u=>fetch(u+"?t="+Date.now()).then(r=>r.ok?r.json():null).catch(()=>null);
+Promise.all([load("data/seats.json"),load("data/tf_boats.json")]).then(([a,b])=>{
+  base=((a&&a.rows)||[]).filter(r=>r.date>=today&&r.source==="선상24").map(tag);
+  const ssDates=base.map(r=>r.date).sort(); ssMax=ssDates.length?ssDates[ssDates.length-1]:null;
+  tfBoats=(b&&b.b?b.b.map(x=>{const g=b.g[x[4]]; return {u:x[0],s:x[1],n:x[2],p:x[3],g,r:regOf(g)};}):[]);
+  redraw();
+  refresh(false);
+}).catch(e=>{ $("#upd").textContent="오류"; $("#list").innerHTML=`<div class="empty">불러오지 못했습니다 (${e.message}).</div>`; });
 })();
 </script>
 </body>
