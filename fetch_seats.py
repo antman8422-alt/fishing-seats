@@ -11,10 +11,11 @@ from bs4 import BeautifulSoup
 
 
 class C:
-    DAYS_AHEAD = 28                       # 오늘부터 4주
-    SUNSANG24_AREAS = [-405, 511, 2519, 514, 515, -404, 504, 505, 507, 506]   # 인천 전체 + 경기 전체
+    DAYS_AHEAD = 60                       # 오늘부터 2달
+    SUNSANG24_AREAS = [-405, 511, 2519, 514, 515, -404, 504, 505, 507, 506,   # 인천 + 경기
+                       501, 499, 500, 502, 497, 496, 498]                     # 충남 (당진·서산·태안·아산·보령·서천·홍성)
     SUNSANG24_FISH = ""
-    THEFISHING_ENABLE = True
+    THEFISHING_ENABLE = False             # thefishing.kr 는 GitHub 서버 접속 차단 → 페이지에서 Worker 로 실시간 수집
     THEFISHING_LIST_PAGES = 40
     THEFISHING_CACHE = "data/thefishing_boats.json"
     OUTPUT_JSON = "data/seats.json"
@@ -109,7 +110,7 @@ def parse_sunsang24_api(date):
     """해당 날짜의 인천·경기(설정 지역) 출항 일정 전부"""
     rows = []
     area = ",".join(str(a) for a in C.SUNSANG24_AREAS)
-    for page in range(1, 30):
+    for page in range(1, 40):
         url = ("https://api.sunsang24.com/ship/list?type=general&area_type=area"
                f"&area={urllib.parse.quote(area)}&sdate={date.isoformat()}&page={page}"
                f"&fish={urllib.parse.quote(C.SUNSANG24_FISH)}")
@@ -309,8 +310,12 @@ def main():
     dates = [TODAY + dt.timedelta(d) for d in range(C.DAYS_AHEAD + 1)]
 
     print(f"선상24 API: {len(dates)}일 스캔 ...")
+    empty_run = 0
     for d in dates:
+        if empty_run >= 3:
+            break
         got = parse_sunsang24_api(d)
+        empty_run = empty_run + 1 if not got else 0
         rows += got
         print(f"  {d.isoformat()}({WD[d.weekday()]}) {len(got):>3}척, 빈자리 {sum(1 for r in got if (r['left'] or 0) >= 1)}척")
         time.sleep(0.25)
