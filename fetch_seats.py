@@ -113,12 +113,19 @@ def parse_sunsang24_api(date):
         url = ("https://api.sunsang24.com/ship/list?type=general&area_type=area"
                f"&area={urllib.parse.quote(area)}&sdate={date.isoformat()}&page={page}"
                f"&fish={urllib.parse.quote(C.SUNSANG24_FISH)}")
-        try:
-            r = requests.get(url, headers={**UA, "Origin": "https://www.sunsang24.com",
-                                           "Referer": "https://www.sunsang24.com/ship/list"}, timeout=20)
-            data = r.json()
-        except Exception as e:
-            ERRORS.append((url, f"{type(e).__name__}: {str(e)[:80]}"))
+        data, last, r = None, "", None
+        for attempt in range(4):
+            try:
+                r = requests.get(url, headers={**UA, "Origin": "https://www.sunsang24.com",
+                                               "Referer": "https://www.sunsang24.com/ship/list"}, timeout=30)
+                data = r.json()
+                break
+            except Exception as e:
+                code = getattr(r, "status_code", "?")
+                last = f"{type(e).__name__}: {str(e)[:60]} (HTTP {code})"
+                time.sleep(3 * (attempt + 1))
+        if data is None:
+            ERRORS.append((url, last))
             break
         if C.DEBUG_DUMP:
             os.makedirs("debug", exist_ok=True)
@@ -153,7 +160,7 @@ def parse_sunsang24_api(date):
                 raw=f"{ship.get('area_main','')} {ship.get('area_sub','')} {x.get('fishing_method','')} {st}"))
         if len(lst) < 30:
             break
-        time.sleep(0.2)
+        time.sleep(0.6)
     return rows
 
 
@@ -166,14 +173,19 @@ SESSION.headers.update(UA)
 
 
 def tf_get(url):
-    try:
-        r = SESSION.get(url, timeout=25)
-        if r.status_code == 200:
-            r.encoding = "utf-8"
-            return r.text
-        ERRORS.append((url, f"HTTP {r.status_code}"))
-    except Exception as e:
-        ERRORS.append((url, f"{type(e).__name__}: {str(e)[:80]}"))
+    last = ""
+    for attempt in range(3):
+        u = url if attempt < 2 else url.replace("https://", "http://")
+        try:
+            r = SESSION.get(u, timeout=60)
+            if r.status_code == 200:
+                r.encoding = "utf-8"
+                return r.text
+            last = f"HTTP {r.status_code}"
+        except Exception as e:
+            last = f"{type(e).__name__}: {str(e)[:80]}"
+        time.sleep(3)
+    ERRORS.append((url, last))
     return None
 
 
@@ -218,6 +230,9 @@ def discover_thefishing(refresh=False):
             if not b["name"]:
                 b["name"] = f"uid{uid}"
         time.sleep(0.2)
+    if not boats:
+        print("더피싱 선박 목록 수집 실패 → 캐시 저장 안 함")
+        return boats
     with open(C.THEFISHING_CACHE, "w", encoding="utf-8") as f:
         json.dump(boats, f, ensure_ascii=False, indent=1)
     print(f"더피싱 경기도권 {len(boats)}척 (st_uid 확보 {sum(1 for b in boats.values() if b['st_uid'])}) → {C.THEFISHING_CACHE}")
@@ -237,7 +252,7 @@ def parse_thefishing_month(b, year, month):
     try:
         r = SESSION.post(url, data={"date6": f"{year}{month:02d}", "st_uid": b["st_uid"], "pa_uid": b["uid"]},
                          headers={"Referer": f"{TF}/reservation/list.php?uid={b['uid']}",
-                                  "X-Requested-With": "XMLHttpRequest"}, timeout=25)
+                                  "X-Requested-With": "XMLHttpRequest"}, timeout=60)
         r.encoding = "utf-8"
         html = r.text
     except Exception as e:
