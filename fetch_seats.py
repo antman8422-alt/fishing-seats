@@ -118,6 +118,9 @@ def parse_sunsang24_api(date):
             try:
                 r = requests.get(url, headers={**UA, "Origin": "https://www.sunsang24.com",
                                                "Referer": "https://www.sunsang24.com/ship/list"}, timeout=30)
+                if r.status_code == 405:      # 일정 없는 먼 날짜에 405 를 돌려줌 → 빈 결과
+                    data = {"list": []}
+                    break
                 data = r.json()
                 break
             except Exception as e:
@@ -193,7 +196,10 @@ def discover_thefishing(refresh=False):
     """thefishing.kr 예약선박 목록 → '서해권 > 경기도' 배의 uid·이름·항구·st_uid"""
     if os.path.exists(C.THEFISHING_CACHE) and not refresh:
         with open(C.THEFISHING_CACHE, encoding="utf-8") as f:
-            return json.load(f)
+            cached = json.load(f)
+        if cached:
+            return cached
+        print("더피싱 캐시가 비어 있음 → 다시 수집")
     print("더피싱 선박 목록 수집 중 (thefishing.kr, 경기도 권역) ...")
     boats = {}
     for p in range(1, C.THEFISHING_LIST_PAGES + 1):
