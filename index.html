@@ -221,7 +221,7 @@ async function liveTF(){
         (j.errors||[]).forEach(e=>errs.push(`더피싱 ${byUid[e.uid]?byUid[e.uid].n:e.uid}: ${e.error}`));
         for(const r of (j.rows||[])){
           const b=byUid[r.uid]; if(!b) continue;
-          fresh.push({source:"더피싱",port:b.p,boat:b.n,date:r.date,tide:r.tide,species:r.species,time:"",price:r.price,
+          fresh.push({source:"더피싱",port:b.p,boat:b.n,date:r.date,tide:r.tide,species:r.species,time:"",price:(parseInt(r.price)>0&&parseInt(r.price)<=40)?r.price:"",
             left:r.left,capacity:null,link:`https://thefishing.kr/reservation/list.php?uid=${b.u}`,raw:"",uid:b.u});
         }
       }catch(e){ errs.push(`더피싱 ${ym}: ${e.message}`); }
