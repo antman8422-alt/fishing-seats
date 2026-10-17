@@ -19,6 +19,8 @@ class C:
     THEFISHING_LIST_PAGES = 40
     THEFISHING_CACHE = "data/thefishing_boats.json"
     OUTPUT_JSON = "data/seats.json"
+    SS_SHIPS = "data/ss_ships.json"       # 선상24 배 목록 (목록 API 에서 본 배를 계속 누적)
+    SS_SHIP_WORKERS = 8                   # 배별 월 달력 동시 요청 수
     DEBUG_DUMP = False
     MIN_SEATS = 1
     SPECIES_KEYWORDS = None
@@ -161,11 +163,78 @@ def parse_sunsang24_api(date):
                 price=f"{price // 10000}만원" if price else "",
                 left=left, capacity=cap, status=status,
                 link=f"https://www.sunsang24.com/ship/list/?ship_no={ship.get('no')}&sdate={date.isoformat()}",
-                raw=f"{ship.get('area_main','')} {ship.get('area_sub','')} {x.get('fishing_method','')} {st}"))
+                raw=f"{ship.get('area_main','')} {ship.get('area_sub','')} {x.get('fishing_method','')} {st}",
+                _ship=[str(ship.get("no")), ship.get("name") or "", x.get("port_name") or ship.get("area_sub") or "",
+                       ship.get("area_main") or "", ship.get("area_sub") or ""]))
         if len(lst) < 30:
             break
         time.sleep(0.6)
     return rows
+
+
+# ══════════════════════════════════════════════════════════
+# 1-b) 선상24 배별 월 달력 (schedule_fleet_list)
+#      목록 API 는 약 1주 뒤까지만 열려 있어서, 그 뒤 날짜는 배마다 달력을 받아 채움
+# ══════════════════════════════════════════════════════════
+def ss_ship_month(info, ym, after):
+    no, name, port, am, asub = info
+    url = f"https://api.sunsang24.com/ship/schedule_fleet_list/{no}/{ym}?simple=&possible=&eyyyymm="
+    data, last = None, ""
+    for attempt in range(3):
+        try:
+            r = requests.get(url, headers={**UA, "Origin": "https://www.sunsang24.com",
+                                           "Referer": "https://www.sunsang24.com/ship/list"}, timeout=30)
+            if r.status_code in (404, 405):
+                return []
+            data = r.json()
+            break
+        except Exception as e:
+            last = f"{type(e).__name__}: {str(e)[:60]}"
+            time.sleep(2 * (attempt + 1))
+    if data is None:
+        ERRORS.append((url, last))
+        return []
+    rows = []
+    for x in (data if isinstance(data, list) else []):
+        try:
+            d = dt.date.fromisoformat(x.get("sdate") or "")
+        except ValueError:
+            continue
+        if d <= after or d > END:
+            continue
+        left = x.get("remain_embarkation_num")
+        if x.get("status_code") == "END" or x.get("status") == "예약마감":
+            left = 0
+        if left is None:
+            continue
+        ship = x.get("ship") or {}
+        stime = (x.get("stime") or "")[:5]; etime = (x.get("etime") or "")[:5]
+        price = x.get("price") or 0
+        sno = str(ship.get("no") or no)
+        rows.append(dict(
+            source="선상24", port=port, boat=ship.get("name") or name, date=d, weekday=WD[d.weekday()],
+            tide=x.get("tide_water") or "", species=(x.get("fish_type") or "")[:40],
+            time=f"{stime}~{etime}" if stime else "",
+            price=f"{price // 10000}만원" if price else "",
+            left=left, capacity=x.get("embarkation_num"), status="남은자리" if left > 0 else "마감",
+            link=f"https://www.sunsang24.com/ship/list/?ship_no={sno}&sdate={d.isoformat()}",
+            raw=f"{am} {asub} {x.get('fishing_method') or ''} {x.get('status') or ''}"))
+    return rows
+
+
+def ss_far(ships, after):
+    """after 다음 날 ~ END 를 배별 달력으로"""
+    from concurrent.futures import ThreadPoolExecutor
+    months = sorted({f"{d.year}{d.month:02d}" for d in
+                     (after + dt.timedelta(n) for n in range(1, (END - after).days + 1))})
+    jobs = [(info, ym) for info in ships.values() for ym in months]
+    print(f"선상24 배별 달력: {len(ships)}척 × {len(months)}개월 ({after.isoformat()} 이후) ...")
+    out = []
+    with ThreadPoolExecutor(C.SS_SHIP_WORKERS) as ex:
+        for got in ex.map(lambda j: ss_ship_month(j[0], j[1], after), jobs):
+            out += got
+    print(f"  {len(out)}건, 빈자리 {sum(1 for r in out if (r['left'] or 0) >= 1)}건")
+    return out
 
 
 # ══════════════════════════════════════════════════════════
@@ -320,6 +389,25 @@ def main():
         print(f"  {d.isoformat()}({WD[d.weekday()]}) {len(got):>3}척, 빈자리 {sum(1 for r in got if (r['left'] or 0) >= 1)}척")
         time.sleep(0.25)
 
+    # 선상24 배 목록 누적 → 목록 API 가 안 열린 날짜는 배별 달력으로
+    ships = {}
+    if os.path.exists(C.SS_SHIPS):
+        try:
+            with open(C.SS_SHIPS, encoding="utf-8") as f:
+                ships = json.load(f)
+        except Exception:
+            ships = {}
+    for r in rows:
+        info = r.pop("_ship", None)
+        if info and info[0] not in ("None", ""):
+            ships[info[0]] = info
+    os.makedirs(os.path.dirname(C.SS_SHIPS), exist_ok=True)
+    with open(C.SS_SHIPS, "w", encoding="utf-8") as f:
+        json.dump(ships, f, ensure_ascii=False, separators=(",", ":"))
+    list_max = max([r["date"] for r in rows] or [TODAY - dt.timedelta(1)])
+    if ships and list_max < END:
+        rows += ss_far(ships, list_max)
+
     if C.THEFISHING_ENABLE:
         tf = discover_thefishing(refresh)
         months = sorted({(d.year, d.month) for d in dates})
@@ -337,7 +425,7 @@ def main():
     rows.sort(key=lambda r: (r["date"], -(r["left"] if r["left"] is not None else -1), r["port"], r["boat"]))
     out = {
         "updated": dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).strftime("%Y-%m-%d %H:%M KST"),
-        "from": TODAY.isoformat(), "to": END.isoformat(),
+        "from": TODAY.isoformat(), "to": END.isoformat(), "ss_list_max": list_max.isoformat(),
         "rows": [{**r, "date": r["date"].isoformat(), "raw": r["raw"][:80]} for r in rows],
         "boats": boatlist,
         "errors": ERRORS[:50],
