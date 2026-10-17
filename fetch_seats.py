@@ -176,7 +176,7 @@ def parse_sunsang24_api(date):
 # 1-b) 선상24 배별 월 달력 (schedule_fleet_list)
 #      목록 API 는 약 1주 뒤까지만 열려 있어서, 그 뒤 날짜는 배마다 달력을 받아 채움
 # ══════════════════════════════════════════════════════════
-def ss_ship_month(info, ym, after):
+def ss_ship_month(info, ym, after, ships):
     no, name, port, am, asub = info
     url = f"https://api.sunsang24.com/ship/schedule_fleet_list/{no}/{ym}?simple=&possible=&eyyyymm="
     data, last = None, ""
@@ -211,8 +211,11 @@ def ss_ship_month(info, ym, after):
         stime = (x.get("stime") or "")[:5]; etime = (x.get("etime") or "")[:5]
         price = x.get("price") or 0
         sno = str(ship.get("no") or no)
-        rows.append(dict(
-            source="선상24", port=port, boat=ship.get("name") or name, date=d, weekday=WD[d.weekday()],
+        if sno != str(no) and sno in ships:          # 선단 달력에는 같은 선단의 다른 배 일정도 섞여 옴
+            _, name, port, am, asub = ships[sno]
+        rows.append(dict(_sched=x.get("schedule_no"),
+            source="선상24", port=port, date=d, weekday=WD[d.weekday()],
+            boat=(ship.get("name") or name) + (f" {x['small_ship_name']}" if x.get("small_ship_name") else ""),
             tide=x.get("tide_water") or "", species=(x.get("fish_type") or "")[:40],
             time=f"{stime}~{etime}" if stime else "",
             price=f"{price // 10000}만원" if price else "",
@@ -231,8 +234,14 @@ def ss_far(ships, after):
     print(f"선상24 배별 달력: {len(ships)}척 × {len(months)}개월 ({after.isoformat()} 이후) ...")
     out = []
     with ThreadPoolExecutor(C.SS_SHIP_WORKERS) as ex:
-        for got in ex.map(lambda j: ss_ship_month(j[0], j[1], after), jobs):
-            out += got
+        seen = set()
+        for got in ex.map(lambda j: ss_ship_month(j[0], j[1], after, ships), jobs):
+            for r in got:                              # 같은 일정이 선단 배마다 중복으로 오므로 일정번호로 한 번만
+                k = r.pop("_sched", None) or (r["link"], r["time"])
+                if k in seen:
+                    continue
+                seen.add(k)
+                out.append(r)
     print(f"  {len(out)}건, 빈자리 {sum(1 for r in out if (r['left'] or 0) >= 1)}건")
     return out
 
