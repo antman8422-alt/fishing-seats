@@ -55,6 +55,10 @@ header{background:var(--sea);color:#fff;padding:calc(12px + env(safe-area-inset-
 .filters::-webkit-scrollbar{display:none}
 .chip{flex:0 0 auto;border:1px solid var(--line);background:var(--chip);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:500;color:var(--ink)}
 .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.q{flex:0 0 130px;border:1px solid var(--line);background:var(--chip);border-radius:999px;padding:6px 12px;font-size:14px;color:var(--ink);outline:none;-webkit-appearance:none}
+.q.on{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
+.hint{font-size:13px;color:var(--mute,#6a7a84);margin:4px 0 10px}
+.hint button{border:0;background:none;color:inherit;text-decoration:underline;font:inherit;padding:0 2px;cursor:pointer}
 select.chip{appearance:none;-webkit-appearance:none;padding-right:26px;background:var(--chip) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236a7a84'/%3E%3C/svg%3E") no-repeat right 10px center}
 
 /* 목록 */
@@ -107,6 +111,7 @@ main{padding:0 16px calc(24px + env(safe-area-inset-bottom))}
   </div>
 </header>
 <div class="filters" id="filters">
+  <input class="q" id="fQ" type="search" placeholder="배·항구 검색" autocomplete="off">
   <button class="chip on" id="fOpen">빈자리만</button>
   <select class="chip" id="fGrp"><option value="">전체 지역</option></select>
   <button class="chip" data-f="쭈갑">쭈꾸미·갑오징어</button>
@@ -154,7 +159,10 @@ function groupOf(r){
 }
 function regOf(g){ return g==="충남 북부"?"cn":g==="충남 남부"?"cs":"gg"; }
 function fishOk(r){ if(!state.fish) return true; const ks=FISH[state.fish]||[]; const s=(r.species||"")+" "+(r.raw||""); return ks.some(k=>s.includes(k)); }
-const shown=r=>r.reg===state.reg&&fishOk(r)&&(!state.grp||r.grp===state.grp);
+let Q="";
+const norm=s=>(s||"").replace(/\s+/g,"").toLowerCase();
+const qOk=r=>!Q||norm(r.boat+" "+r.port).includes(Q);
+const shown=r=>r.reg===state.reg&&fishOk(r)&&(!state.grp||r.grp===state.grp)&&qOk(r);
 
 let base=[], tfBoats=[], tfRows={}, ssLive={}, busy=0, liveAt=null, errs=[], tfDone={}, ssMax=null;
 function allRows(){
@@ -185,6 +193,7 @@ function render(){
   $("#fOpen").classList.toggle("on",state.open);
   document.querySelectorAll("[data-f]").forEach(b=>b.classList.toggle("on",b.dataset.f===state.fish));
 
+  if(Q){ renderSearch(rows,grps); return; }
   let day=rows.filter(r=>r.date===state.date&&shown(r));
   const total=day.length, openN=day.filter(r=>r.left>0).length;
   if(state.open) day=day.filter(r=>r.left>0);
@@ -196,12 +205,33 @@ function render(){
   const order=grps.filter(x=>g[x]).concat(Object.keys(g).filter(x=>!grps.includes(x)));
   $("#list").innerHTML=order.map(k=>{
     const rs=g[k].sort((a,b)=>(b.left||0)-(a.left||0)||a.port.localeCompare(b.port,"ko")||a.boat.localeCompare(b.boat,"ko"));
-    return `<div class="group">${k}<span>빈자리 ${rs.filter(r=>r.left>0).length} / ${rs.length}척</span></div>`+rs.map(r=>{
-      const cls=r.left>0?(r.left<=2?"few":"open"):"full";
-      const seat=r.left>0?`<b>${r.left}</b><small>남은자리${r.capacity?" / "+r.capacity:""}</small>`:`<b>마감</b>`;
-      const meta=[r.species, r.time, r.price, r.tide].filter(Boolean).map(x=>`<i>${x}</i>`).join(" · ");
-      return `<a class="row" href="${r.link}" target="_blank" rel="noopener"><div class="b">${r.boat}<span class="pt">${r.port||""}</span><span class="src">${r.source}</span></div><div class="m">${meta||"상세는 예약 페이지에서"}</div><div class="seat ${cls}">${seat}</div></a>`;
-    }).join("");
+    return `<div class="group">${k}<span>빈자리 ${rs.filter(r=>r.left>0).length} / ${rs.length}척</span></div>`+rs.map(rowHtml).join("");
+  }).join("");
+}
+function rowHtml(r){
+  const cls=r.left>0?(r.left<=2?"few":"open"):"full";
+  const seat=r.left>0?`<b>${r.left}</b><small>남은자리${r.capacity?" / "+r.capacity:""}</small>`:`<b>마감</b>`;
+  const meta=[r.species, r.time, r.price, r.tide].filter(Boolean).map(x=>`<i>${x}</i>`).join(" · ");
+  return `<a class="row" href="${r.link}" target="_blank" rel="noopener"><div class="b">${r.boat}<span class="pt">${r.port||""}</span><span class="src">${r.source}</span></div><div class="m">${meta||"상세는 예약 페이지에서"}</div><div class="seat ${cls}">${seat}</div></a>`;
+}
+// 검색 중: 선택 날짜와 상관없이 60일 전체에서 그 배의 일정을 날짜순으로
+function renderSearch(rows,grps){
+  let hit=rows.filter(r=>r.date>=today&&r.date<=until&&shown(r));
+  const total=hit.length, openN=hit.filter(r=>r.left>0).length;
+  const boats=new Set(hit.map(r=>r.boat)).size;
+  if(state.open) hit=hit.filter(r=>r.left>0);
+  $("#sum").innerHTML=`‘${$("#fQ").value.trim()}’ · ${REG[state.reg].name} ${boats}척, 60일 중 빈자리 있는 일정 <b>${openN}</b> / ${total}`;
+  // 다른 지역 탭에 같은 이름이 있으면 알려주기
+  const other={};
+  tfBoats.forEach(b=>{ if(b.r!==state.reg&&norm(b.n+" "+b.p).includes(Q)) other[b.r]=1; });
+  base.forEach(r=>{ if(r.reg!==state.reg&&qOk(r)) other[r.reg]=1; });
+  const ot=Object.keys(other);
+  $("#note").innerHTML=ot.length?`<div class="hint">다른 지역에도 있음: ${ot.map(k=>`<button data-go="${k}">${REG[k].name}</button>`).join(" ")}</div>`:"";
+  if(!hit.length){ $("#list").innerHTML=`<div class="empty">${busy?"확인 중입니다…":total?"이 배는 60일 안에 남은 자리가 없습니다.<br>‘빈자리만’을 끄면 마감된 날도 보입니다.":"이 탭에서 찾는 배가 없습니다.<br>이름 일부만 넣어 보세요 (예: 은하)."}</div>`; return; }
+  const g={}; hit.forEach(r=>(g[r.date]=g[r.date]||[]).push(r));
+  $("#list").innerHTML=Object.keys(g).sort().map(d=>{
+    const dt=new Date(d+"T00:00:00"), rs=g[d].sort((a,b)=>a.boat.localeCompare(b.boat,"ko"));
+    return `<div class="group">${dt.getMonth()+1}월 ${dt.getDate()}일(${WD[dt.getDay()]})<span>빈자리 ${rs.filter(r=>r.left>0).length} / ${rs.length}척</span></div>`+rs.map(rowHtml).join("");
   }).join("");
 }
 function status(){
@@ -254,12 +284,14 @@ function refresh(force){
 }
 
 document.addEventListener("click",e=>{
-  const d=e.target.closest(".d"); if(d){ state.date=d.dataset.d; save(); render(); track(liveSS(state.date)); return; }
+  const go=e.target.closest("[data-go]"); if(go){ state.reg=go.dataset.go; state.grp=""; save(); redraw(); refresh(false); return; }
+  const d=e.target.closest(".d"); if(d){ if(Q){ $("#fQ").value=""; Q=""; $("#fQ").classList.remove("on"); } state.date=d.dataset.d; save(); render(); track(liveSS(state.date)); return; }
   const t=e.target.closest(".tab"); if(t){ if(state.reg!==t.dataset.r){ state.reg=t.dataset.r; state.grp=""; save(); redraw(); refresh(false);} return; }
   if(e.target.closest("#fOpen")){ state.open=!state.open; save(); render(); return; }
   const f=e.target.closest("[data-f]"); if(f){ state.fish=state.fish===f.dataset.f?"":f.dataset.f; save(); render(); return; }
   if(e.target.closest("#upd")&&!busy) refresh(true);
 });
+let qT; $("#fQ").addEventListener("input",e=>{ clearTimeout(qT); qT=setTimeout(()=>{ Q=norm(e.target.value); e.target.classList.toggle("on",!!Q); render(); },200); });
 $("#fGrp").addEventListener("change",e=>{ state.grp=e.target.value; save(); render(); });
 
 const load=u=>fetch(u+"?t="+Date.now()).then(r=>r.ok?r.json():null).catch(()=>null);
