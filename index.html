@@ -164,7 +164,7 @@ const norm=s=>(s||"").replace(/\s+/g,"").toLowerCase();
 const qOk=r=>!Q||norm(r.boat+" "+r.port).includes(Q);
 const shown=r=>r.reg===state.reg&&fishOk(r)&&(!state.grp||r.grp===state.grp)&&qOk(r);
 
-let base=[], tfBoats=[], tfRows={}, ssLive={}, busy=0, liveAt=null, errs=[], tfDone={}, ssMax=null;
+let base=[], tfBoats=[], tfRows={}, ssLive={}, busy=0, liveAt=null, errs=[], tfDone={}, ssMax=null, listMax=null, baseAt="";
 function allRows(){
   const out=[];
   const liveDates=new Set(Object.keys(ssLive).filter(k=>k.startsWith(state.reg+"|")).map(k=>k.split("|")[1]));
@@ -199,7 +199,7 @@ function render(){
   if(state.open) day=day.filter(r=>r.left>0);
   const dt=new Date(state.date+"T00:00:00");
   $("#sum").innerHTML=`${dt.getMonth()+1}월 ${dt.getDate()}일(${WD[dt.getDay()]}) · ${REG[state.reg].name} 출항 <b>${total}</b>척 중 빈자리 <b>${openN}</b>척`;
-  $("#note").textContent=(ssMax&&state.date>ssMax)?`선상24는 ${+ssMax.slice(5,7)}월 ${+ssMax.slice(8)}일 이후 일정이 아직 안 열려 있어 더피싱 배만 보입니다.`:"";
+  $("#note").textContent=(listMax&&state.date>listMax&&baseAt)?`이 날짜의 선상24 숫자는 ${baseAt} 기준입니다 (2시간마다 갱신). 더피싱은 실시간입니다.`:"";
   if(!day.length){ $("#list").innerHTML=`<div class="empty">${busy?"확인 중입니다…":state.open?"이날은 남은 자리가 없습니다.<br>다른 날짜를 누르거나 ‘빈자리만’을 꺼서 마감된 배도 보세요.":"이날 출항 정보가 없습니다."}</div>`; return; }
   const g={}; day.forEach(r=>(g[r.grp]=g[r.grp]||[]).push(r));
   const order=grps.filter(x=>g[x]).concat(Object.keys(g).filter(x=>!grps.includes(x)));
@@ -248,6 +248,7 @@ async function track(p){ busy++; status(); try{ return await p; } finally{ busy-
 async function liveSS(date, force){
   const reg=state.reg, key=reg+"|"+date;
   if(!force && ssLive[key]) return;
+  if(listMax && date>listMax) return;            // 선상24 목록 API 가 아직 안 연 날짜 → Actions 가 배별 달력으로 받아 둔 값 사용
   try{
     const j=await fetch(`${W}/ss?date=${date}&area=${REG[reg].area}`).then(r=>r.json());
     if(j.rows){ ssLive[key]=j.rows.map(tag).filter(r=>r.reg===reg); redraw(); } else errs.push(`선상24 ${date}: ${j.error||"실패"}`);
@@ -298,6 +299,7 @@ const load=u=>fetch(u+"?t="+Date.now()).then(r=>r.ok?r.json():null).catch(()=>nu
 Promise.all([load("data/seats.json"),load("data/tf_boats.json")]).then(([a,b])=>{
   base=((a&&a.rows)||[]).filter(r=>r.date>=today&&r.source==="선상24").map(tag);
   const ssDates=base.map(r=>r.date).sort(); ssMax=ssDates.length?ssDates[ssDates.length-1]:null;
+  listMax=(a&&a.ss_list_max)||null; baseAt=((a&&a.updated)||"").replace(/^\d{4}-(\d\d)-(\d\d) (\d\d:\d\d).*/,(m,mo,d,t)=>`${+mo}/${+d} ${t}`);
   tfBoats=(b&&b.b?b.b.map(x=>{const g=b.g[x[4]]; return {u:x[0],s:x[1],n:x[2],p:x[3],g,r:regOf(g)};}):[]);
   redraw();
   refresh(false);
