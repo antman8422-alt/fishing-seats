@@ -182,7 +182,7 @@ function allRows(){
 function tag(r){ r.grp=groupOf(r); r.reg=regOf(r.grp); return r; }
 
 // 물때: 그날 일정들에 붙은 물때 표기 중 가장 많은 것
-const TIDE_RE=/(\d{1,2}물|조금|무시|사리)/;
+const TIDE_RE=/(\d{1,2}물|조금|무시)/;            // "사리" 표기는 배마다 달라서 제외
 function tideMap(rows){
   const c={};
   for(const r of rows){ const m=TIDE_RE.exec(r.tide||""); if(!m) continue; const k=r.date; (c[k]=c[k]||{})[m[1]]=(c[k][m[1]]||0)+1; }
