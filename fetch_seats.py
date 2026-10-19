@@ -382,6 +382,29 @@ def parse_thefishing_month(b, year, month):
 # ══════════════════════════════════════════════════════════
 # 4) JSON 출력
 # ══════════════════════════════════════════════════════════
+def compact(rows):
+    """선상24 일정을 작게: s = 배번호→[이름, 항구, 시도, 시군], r = [날짜, 배번호, 남은, 정원, 시간, 요금(만원), 어종, 물때, (이름), (항구)]"""
+    ships, out = {}, []
+    for r in rows:
+        if r["source"] != "선상24":
+            continue
+        m = re.search(r"ship_no=(\d+)", r["link"])
+        if not m:
+            continue
+        no = m.group(1)
+        am, asub = (r["raw"].split(" ") + ["", ""])[:2]
+        if no not in ships:
+            ships[no] = [r["boat"], r["port"], am, asub]
+        s = ships[no]
+        pr = re.match(r"(\d+)", r["price"] or "")
+        x = [r["date"].isoformat(), no, r["left"], r["capacity"], r["time"], int(pr.group(1)) if pr else 0,
+             r["species"], r["tide"], r["boat"] if r["boat"] != s[0] else "", r["port"] if r["port"] != s[1] else ""]
+        while x and x[-1] in ("", None, 0) and len(x) > 4:
+            x.pop()
+        out.append(x)
+    return {"s": ships, "r": out}
+
+
 def main():
     refresh = "--refresh" in sys.argv or not os.path.exists(C.THEFISHING_CACHE)
     rows, boatlist = [], []
@@ -435,7 +458,7 @@ def main():
     out = {
         "updated": dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).strftime("%Y-%m-%d %H:%M KST"),
         "from": TODAY.isoformat(), "to": END.isoformat(), "ss_list_max": list_max.isoformat(),
-        "rows": [{**r, "date": r["date"].isoformat(), "raw": r["raw"][:80]} for r in rows],
+        "c": compact(rows),
         "boats": boatlist,
         "errors": ERRORS[:50],
     }
