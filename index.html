@@ -313,7 +313,7 @@ document.addEventListener("click",e=>{
 // 날짜 띠 좌우 이동: 화살표·마우스 휠·마우스 끌기 (PC), 손가락 밀기 (휴대폰 기본)
 let dragged=false;
 const strip=$("#dates");
-const page=dir=>strip.scrollBy({left:dir*strip.clientWidth*0.8,behavior:"smooth"});
+const page=dir=>strip.scrollBy({left:dir*5*62,behavior:"smooth"});   // 화살표 한 번에 5일 (칸 56px + 간격 6px)
 $("#dPrev").addEventListener("click",e=>{ e.stopPropagation(); page(-1); });
 $("#dNext").addEventListener("click",e=>{ e.stopPropagation(); page(1); });
 strip.addEventListener("wheel",e=>{ if(Math.abs(e.deltaY)>Math.abs(e.deltaX)){ strip.scrollLeft+=e.deltaY; e.preventDefault(); } },{passive:false});
