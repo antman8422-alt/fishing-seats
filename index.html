@@ -170,7 +170,7 @@ const norm=s=>(s||"").replace(/\s+/g,"").toLowerCase();
 const qOk=r=>!Q||norm(r.boat+" "+r.port).includes(Q);
 const shown=r=>r.reg===state.reg&&fishOk(r)&&(!state.grp||r.grp===state.grp)&&qOk(r);
 
-let base=[], tfBoats=[], tfRows={}, ssLive={}, busy=0, liveAt=null, errs=[], tfDone={}, ssMax=null, listMax=null, baseAt="";
+let base=[], tfBoats=[], tfRows={}, ssLive={}, busy=0, liveAt=null, errs=[], tfDone={}, ssMax=null, listMax=null, baseAt="", baseLoaded=false;
 function allRows(){
   const out=[];
   const liveDates=new Set(Object.keys(ssLive).filter(k=>k.startsWith(state.reg+"|")).map(k=>k.split("|")[1]));
@@ -265,6 +265,7 @@ async function track(p){ busy++; status(); try{ return await p; } finally{ busy-
 async function liveSS(date, force){
   const reg=state.reg, key=reg+"|"+date;
   if(!force && ssLive[key]) return;
+  if(!baseLoaded) return;                         // 묶음 파일이 오면 그때 확인
   if(listMax && date>listMax) return;            // 선상24 목록 API 가 아직 안 연 날짜 → Actions 가 배별 달력으로 받아 둔 값 사용
   try{
     const j=await fetch(`${W}/ss?date=${date}&area=${REG[reg].area}`).then(r=>r.json());
@@ -338,13 +339,25 @@ let qT; $("#fQ").addEventListener("input",e=>{ clearTimeout(qT); qT=setTimeout((
 $("#fGrp").addEventListener("change",e=>{ state.grp=e.target.value; save(); render(); });
 
 const load=u=>fetch(u+"?t="+Date.now()).then(r=>r.ok?r.json():null).catch(()=>null);
-Promise.all([load("data/seats.json"),load("data/tf_boats.json")]).then(([a,b])=>{
-  base=((a&&a.rows)||[]).filter(r=>r.date>=today&&r.source==="선상24").map(tag);
+// seats.json 압축 형식(c) 풀기: 배 정보(s)와 일정(r)을 나눠 저장해 파일 크기를 줄임
+function decodeC(c){
+  return c.r.map(x=>{ const s=c.s[x[1]]||["","","",""];
+    return {source:"선상24", date:x[0], boat:x[8]||s[0], port:x[9]||s[1], raw:s[2]+" "+s[3], left:x[2], capacity:x[3],
+      time:x[4]||"", price:x[5]?x[5]+"만원":"", species:x[6]||"", tide:x[7]||"",
+      link:`https://www.sunsang24.com/ship/list/?ship_no=${x[1]}&sdate=${x[0]}`}; });
+}
+// 배 목록이 먼저 오면 더피싱 실시간 확인부터 시작 (선상24 묶음 파일을 기다리지 않음)
+load("data/tf_boats.json").then(b=>{
+  tfBoats=(b&&b.b?b.b.map(x=>{const g=b.g[x[4]]; return {u:x[0],s:x[1],n:x[2],p:x[3],g,r:regOf(g)};}):[]);
+  redraw(); track(liveTF(state.reg,false));
+});
+load("data/seats.json").then(a=>{
+  const rows=a&&a.c?decodeC(a.c):((a&&a.rows)||[]);
+  base=rows.filter(r=>r.date>=today&&r.source==="선상24").map(tag);
   const ssDates=base.map(r=>r.date).sort(); ssMax=ssDates.length?ssDates[ssDates.length-1]:null;
   listMax=(a&&a.ss_list_max)||null; baseAt=((a&&a.updated)||"").replace(/^\d{4}-(\d\d)-(\d\d) (\d\d:\d\d).*/,(m,mo,d,t)=>`${+mo}/${+d} ${t}`);
-  tfBoats=(b&&b.b?b.b.map(x=>{const g=b.g[x[4]]; return {u:x[0],s:x[1],n:x[2],p:x[3],g,r:regOf(g)};}):[]);
-  redraw();
-  refresh(false);
+  baseLoaded=true; redraw();
+  track(liveSS(state.date,false));
 }).catch(e=>{ $("#upd").textContent="오류"; $("#list").innerHTML=`<div class="empty">불러오지 못했습니다 (${e.message}).</div>`; });
 })();
 </script>
