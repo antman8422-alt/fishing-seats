@@ -293,6 +293,9 @@ async function liveTF(reg, force){
       }catch(e){ errs.push(`더피싱 ${ym}: ${e.message}`); }
     }};
     await Promise.all(Array.from({length:10},worker));
+    // 마감된 날은 어종이 비어 와서 어종 필터에 빠짐 → 같은 배의 다른 날 어종으로 채움
+    const sp={}; fresh.forEach(r=>{ if(r.species) sp[r.boat+"|"+r.port]=r.species; });
+    fresh.forEach(r=>{ if(!r.species) r.species=sp[r.boat+"|"+r.port]||""; });
     tfRows[reg]=fresh.slice(); if(reg===state.reg) redraw();
   }
   tfDone[reg]=true;
